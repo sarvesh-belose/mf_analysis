@@ -1,0 +1,46 @@
+Traceback (most recent call last):
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\mapper.py", line 2509, in get_property
+    return self._props[key]
+           ~~~~~~~~~~~^^^^^
+KeyError: 'benchmark'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\self_workspace\mf_analysis\backend\debug.py", line 6, in <module>
+    results = db.query(IngestionStatus).all()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\session.py", line 2952, in query
+    return self._query_cls(entities, self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\query.py", line 275, in __init__
+    self._set_entities(entities)
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\query.py", line 288, in _set_entities
+    coercions.expect(
+  File "C:\Python\Lib\site-packages\sqlalchemy\sql\coercions.py", line 389, in expect
+    insp._post_inspect
+  File "C:\Python\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 1253, in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ^^^^^^^^^^^^^^
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\mapper.py", line 2711, in _post_inspect
+    self._check_configure()
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\mapper.py", line 2388, in _check_configure
+    _configure_registries({self.registry}, cascade=True)
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\mapper.py", line 4204, in _configure_registries
+    _do_configure_registries(registries, cascade)
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\mapper.py", line 4245, in _do_configure_registries
+    mapper._post_configure_properties()
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\mapper.py", line 2405, in _post_configure_properties
+    prop.init()
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\interfaces.py", line 584, in init
+    self.do_init()
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\relationships.py", line 1647, in do_init
+    self._generate_backref()
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\relationships.py", line 2133, in _generate_backref
+    self._add_reverse_property(self.back_populates)
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\relationships.py", line 1578, in _add_reverse_property
+    other = self.mapper.get_property(key, _configure_mappers=False)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python\Lib\site-packages\sqlalchemy\orm\mapper.py", line 2511, in get_property
+    raise sa_exc.InvalidRequestError(
+sqlalchemy.exc.InvalidRequestError: Mapper 'Mapper[TriFetchLog(tri_fetch_log)]' has no property 'benchmark'.  If this property was indicated from other mappers or configure events, ensure registry.configure() has been called.

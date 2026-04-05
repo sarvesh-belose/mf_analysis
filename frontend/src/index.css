@@ -1,0 +1,96 @@
+@import '@mantine/core/styles.css';
+@import '@mantine/charts/styles.css';
+@import '@mantine/notifications/styles.css';
+@import 'mantine-datatable/styles.css';
+
+:root {
+  --positive: #12b886;
+  --negative: #fa5252;
+  --warning: #fab005;
+  --info: #339af0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Metric value colors */
+.metric-positive {
+  color: var(--positive);
+  font-weight: 600;
+}
+
+.metric-negative {
+  color: var(--negative);
+  font-weight: 600;
+}
+
+.metric-neutral {
+  color: var(--mantine-color-dimmed);
+}
+
+/* Glassmorphism cards */
+.glass-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Loading shimmer */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Navigation active link */
+.nav-link-active {
+  background: rgba(99, 102, 241, 0.15);
+  border-left: 3px solid var(--mantine-color-indigo-6);
+}
+
+/* Data table enhancements */
+.mantine-datatable {
+  font-size: 0.85rem;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
