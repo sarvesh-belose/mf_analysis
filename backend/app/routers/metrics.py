@@ -135,6 +135,7 @@ def top_funds(
     period: str = Query("3Y", regex="^(3Y|5Y|7Y)$"),
     n: int = Query(10, ge=1, le=50),
     direction: str = Query("top", regex="^(top|bottom)$"),
+    scheme_category: str = Query(None),
     db: Session = Depends(get_db),
 ):
     """Get top or bottom N funds by a specific metric."""
@@ -149,6 +150,9 @@ def top_funds(
         .filter(FundMetrics.period == period)
         .filter(sort_col.isnot(None))
     )
+
+    if scheme_category:
+        query = query.filter(Fund.scheme_category == scheme_category)
 
     if direction == "top":
         query = query.order_by(sort_col.desc())

@@ -15,18 +15,21 @@ router = APIRouter(tags=["Dashboard & Config"])
 # ── Dashboard ─────────────────────────────────────────────────────────────
 
 @router.get("/api/dashboard/summary")
-def dashboard_summary(db: Session = Depends(get_db)):
+def dashboard_summary(scheme_category: str = None, db: Session = Depends(get_db)):
     """Get aggregate dashboard stats."""
-    total_funds = db.query(func.count(Fund.id)).scalar() or 0
-    funds_with_benchmark = db.query(func.count(Fund.id)).filter(
-        Fund.benchmark_id.isnot(None)
-    ).scalar() or 0
-    funds_with_nav = db.query(func.count(Fund.id)).filter(
-        Fund.nav_fetched == True  # noqa
-    ).scalar() or 0
-    funds_with_metrics = db.query(func.count(Fund.id)).filter(
-        Fund.metrics_computed == True  # noqa
-    ).scalar() or 0
+    funds_query = db.query(Fund)
+    metrics_query = db.query(FundMetrics).filter(FundMetrics.period == "3Y")
+
+    if scheme_category:
+        funds_query = funds_query.filter(Fund.scheme_category == scheme_category)
+        metrics_query = metrics_query.join(Fund, FundMetrics.fund_id == Fund.id).filter(
+            Fund.scheme_category == scheme_category
+        )
+
+    total_funds = funds_query.count()
+    funds_with_benchmark = funds_query.filter(Fund.benchmark_id.isnot(None)).count()
+    funds_with_nav = funds_query.filter(Fund.nav_fetched == True).count()
+    funds_with_metrics = funds_query.filter(Fund.metrics_computed == True).count()
 
     total_benchmarks = db.query(func.count(Benchmark.id)).scalar() or 0
     mapped_benchmarks = db.query(func.count(Benchmark.id)).filter(
@@ -34,35 +37,30 @@ def dashboard_summary(db: Session = Depends(get_db)):
     ).scalar() or 0
 
     # Average Sharpe for 3Y period
-    avg_sharpe = db.query(func.avg(FundMetrics.sharpe_ratio)).filter(
-        FundMetrics.period == "3Y",
+    avg_sharpe = metrics_query.with_entities(func.avg(FundMetrics.sharpe_ratio)).filter(
         FundMetrics.sharpe_ratio.isnot(None),
     ).scalar()
 
-    avg_alpha = db.query(func.avg(FundMetrics.alpha)).filter(
-        FundMetrics.period == "3Y",
+    avg_alpha = metrics_query.with_entities(func.avg(FundMetrics.alpha)).filter(
         FundMetrics.alpha.isnot(None),
     ).scalar()
 
-    # Category distribution
-    category_dist = (
-        db.query(Fund.scheme_category, func.count(Fund.id))
-        .filter(Fund.scheme_category.isnot(None))
-        .group_by(Fund.scheme_category)
-        .order_by(func.count(Fund.id).desc())
-        .limit(20)
-        .all()
-    )
+    # Category distribution (only calculate if not filtered)
+    category_dist = []
+    if not scheme_category:
+        category_dist = (
+            db.query(Fund.scheme_category, func.count(Fund.id))
+            .filter(Fund.scheme_category.isnot(None))
+            .group_by(Fund.scheme_category)
+            .order_by(func.count(Fund.id).desc())
+            .limit(20)
+            .all()
+        )
 
     # Sharpe distribution for histogram (3Y)
-    sharpe_data = (
-        db.query(FundMetrics.sharpe_ratio)
-        .filter(
-            FundMetrics.period == "3Y",
-            FundMetrics.sharpe_ratio.isnot(None),
-        )
-        .all()
-    )
+    sharpe_data = metrics_query.with_entities(FundMetrics.sharpe_ratio).filter(
+        FundMetrics.sharpe_ratio.isnot(None),
+    ).all()
 
     return {
         "total_funds": total_funds,

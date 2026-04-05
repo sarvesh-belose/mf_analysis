@@ -41,7 +41,7 @@ export const uploadTriCsv = (file) => {
 export const getTriFetchLog = () => api.get('/benchmarks/tri/fetch-log');
 
 // ── Dashboard ────────────────────────────────────────────────────────────
-export const getDashboardSummary = () => api.get('/dashboard/summary');
+export const getDashboardSummary = (params) => api.get('/dashboard/summary', { params });
 
 // ── Config ───────────────────────────────────────────────────────────────
 export const getConfig = () => api.get('/config');

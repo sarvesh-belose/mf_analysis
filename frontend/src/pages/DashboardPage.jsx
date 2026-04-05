@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import {
   Title, Text, SimpleGrid, Card, Group, Stack, Badge,
   RingProgress, ThemeIcon, SegmentedControl, Paper, Skeleton,
+  Select,
 } from '@mantine/core';
 import { BarChart, AreaChart } from '@mantine/charts';
 import {
   IconTrendingUp, IconChartBar, IconScale, IconArrowUpRight,
-  IconArrowDownRight, IconUsers,
+  IconArrowDownRight, IconUsers, IconFilter
 } from '@tabler/icons-react';
-import { getDashboardSummary, getTopFunds } from '../api/client';
+import { getDashboardSummary, getTopFunds, getFundFilters } from '../api/client';
 
 function StatCard({ title, value, subtitle, icon: Icon, color, trend }) {
   return (
@@ -47,19 +48,37 @@ export default function DashboardPage() {
   const [topFunds, setTopFunds] = useState([]);
   const [bottomFunds, setBottomFunds] = useState([]);
   const [period, setPeriod] = useState('3Y');
+  const [category, setCategory] = useState('');
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    loadCategories();
+  }, []);
+
+  useEffect(() => {
     loadData();
-  }, [period]);
+  }, [period, category]);
+
+  async function loadCategories() {
+    try {
+      const { data } = await getFundFilters();
+      setCategories(data.categories || []);
+    } catch (err) {
+      console.error('Failed to load categories:', err);
+    }
+  }
 
   async function loadData() {
     setLoading(true);
     try {
+      const params = { period };
+      if (category) params.scheme_category = category;
+
       const [summaryRes, topRes, bottomRes] = await Promise.all([
-        getDashboardSummary(),
-        getTopFunds({ metric: 'sharpe_ratio', period, n: 10, direction: 'top' }),
-        getTopFunds({ metric: 'sharpe_ratio', period, n: 10, direction: 'bottom' }),
+        getDashboardSummary(category ? { scheme_category: category } : {}),
+        getTopFunds({ ...params, metric: 'sharpe_ratio', n: 10, direction: 'top' }),
+        getTopFunds({ ...params, metric: 'sharpe_ratio', n: 10, direction: 'bottom' }),
       ]);
       setSummary(summaryRes.data);
       setTopFunds(topRes.data.data);
@@ -93,13 +112,26 @@ export default function DashboardPage() {
           <Title order={2} c="white">Dashboard</Title>
           <Text size="sm" c="dimmed">Mutual Fund Performance Overview</Text>
         </div>
-        <SegmentedControl
-          size="sm"
-          value={period}
-          onChange={setPeriod}
-          data={['3Y', '5Y', '7Y']}
-          color="indigo"
-        />
+        <Group gap="sm">
+          <Select
+            placeholder="Filter by Category"
+            data={categories}
+            value={category}
+            onChange={setCategory}
+            clearable
+            searchable
+            size="sm"
+            w={250}
+            leftSection={<IconFilter size={16} />}
+          />
+          <SegmentedControl
+            size="sm"
+            value={period}
+            onChange={setPeriod}
+            data={['3Y', '5Y', '7Y']}
+            color="indigo"
+          />
+        </Group>
       </Group>
 
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
