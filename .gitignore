@@ -1,3 +1,7 @@
-mf_analysis.db
-mf_analysis.db-shm
-mf_analysis.db-wal
+*.db
+*.db-shm
+*.db-wal
+.venv/
+__pycache__/
+*.pyc
+
