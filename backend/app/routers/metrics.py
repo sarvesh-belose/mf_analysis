@@ -8,6 +8,7 @@ from sqlalchemy import func, case, and_, or_
 from app.database import get_db
 from app.models import Fund, Benchmark, FundMetrics
 from app.schemas import FundWithMetrics
+from app.services.nl_search import parse_query
 
 router = APIRouter(prefix="/api/metrics", tags=["Metrics"])
 
@@ -19,6 +20,13 @@ VALID_METRIC_COLUMNS = [
 ]
 VALID_FUND_COLUMNS = ["fund_name", "fund_house", "scheme_category"]
 
+# Operator -> SQLAlchemy comparison applied to a FundMetrics column.
+_OP_APPLY = {
+    "gte": lambda col, val: col >= val,
+    "lte": lambda col, val: col <= val,
+    "eq": lambda col, val: col == val,
+}
+
 
 @router.get("")
 def list_metrics(
@@ -27,6 +35,7 @@ def list_metrics(
     page_size: int = Query(50, ge=10, le=500),
     sort_by: str = Query("sharpe_ratio"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    q: Optional[str] = Query(None, description="Natural-language query, e.g. 'sortino more, alpha over 2'"),
     search: Optional[str] = Query(None),
     fund_house: Optional[str] = Query(None),
     scheme_category: Optional[str] = Query(None),
@@ -47,6 +56,23 @@ def list_metrics(
         .outerjoin(Benchmark, Fund.benchmark_id == Benchmark.id)
         .filter(FundMetrics.period == period)
     )
+
+    # Natural-language query: parse into metric filters + sort preferences.
+    nl_result = None
+    if q and q.strip():
+        nl_result = parse_query(q)
+        for cond in nl_result["filters"]:
+            col = getattr(FundMetrics, cond["column"], None)
+            if col is not None:
+                query = query.filter(_OP_APPLY[cond["op"]](col, cond["value"]))
+        # A parsed sort preference overrides the default sort_by/sort_order.
+        if nl_result["sorts"]:
+            first = nl_result["sorts"][0]
+            sort_by = first["column"]
+            sort_order = first["direction"]
+        # Free-text fallback (e.g. fund / AMC name) when nothing metric matched.
+        if nl_result["search"] and not search:
+            search = nl_result["search"]
 
     # Filters
     if search:
@@ -77,6 +103,13 @@ def list_metrics(
     if data_sufficiency:
         query = query.filter(FundMetrics.data_sufficiency == data_sufficiency)
 
+    # When ranking by an NL metric preference (no threshold), exclude rows where
+    # that metric is NULL so they don't pollute the "top" results.
+    if nl_result and nl_result["sorts"]:
+        primary = nl_result["sorts"][0]["column"]
+        if primary in VALID_METRIC_COLUMNS:
+            query = query.filter(getattr(FundMetrics, primary).isnot(None))
+
     total = query.count()
 
     # Sort
@@ -93,6 +126,13 @@ def list_metrics(
         query = query.order_by(sort_col.desc())
     else:
         query = query.order_by(sort_col.asc())
+
+    # Apply any secondary NL sort preferences as tie-breakers.
+    if nl_result:
+        for extra in nl_result["sorts"][1:]:
+            col = getattr(FundMetrics, extra["column"], None)
+            if col is not None:
+                query = query.order_by(col.desc() if extra["direction"] == "desc" else col.asc())
 
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
@@ -126,6 +166,10 @@ def list_metrics(
         "total_pages": (total + page_size - 1) // page_size,
         "period": period,
         "data": data,
+        "nl": {
+            "interpreted": nl_result["interpreted"],
+            "matched": nl_result["matched"],
+        } if nl_result else None,
     }
 
 

@@ -4,7 +4,7 @@ import {
   Badge, ActionIcon, Tooltip, Card, Button, Drawer, NumberInput, Divider
 } from '@mantine/core';
 import { DataTable } from 'mantine-datatable';
-import { IconSearch, IconDownload, IconEye, IconArrowsSort, IconFilter } from '@tabler/icons-react';
+import { IconSearch, IconDownload, IconEye, IconArrowsSort, IconFilter, IconSparkles, IconX } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { listMetrics, getFundFilters } from '../api/client';
 
@@ -28,6 +28,11 @@ export default function MetricsPage() {
   const [sortBy, setSortBy] = useState('sharpe_ratio');
   const [sortOrder, setSortOrder] = useState('desc');
   const [search, setSearch] = useState('');
+  // Natural-language search: `nlInput` is the live text field, `nlQuery` is the
+  // applied value (only changes on submit so we don't query on every keystroke).
+  const [nlInput, setNlInput] = useState('');
+  const [nlQuery, setNlQuery] = useState('');
+  const [nlInfo, setNlInfo] = useState(null);
   const [fundHouse, setFundHouse] = useState('');
   const [category, setCategory] = useState('');
   const [filters, setFilters] = useState({ fund_houses: [], categories: [] });
@@ -47,7 +52,7 @@ export default function MetricsPage() {
 
   useEffect(() => {
     loadData();
-  }, [period, page, sortBy, sortOrder, search, fundHouse, category, minRollingReturn, minSortino, minAlpha, minUpCapture, maxDownCapture]);
+  }, [period, page, sortBy, sortOrder, nlQuery, search, fundHouse, category, minRollingReturn, minSortino, minAlpha, minUpCapture, maxDownCapture]);
 
   async function loadFilters() {
     try {
@@ -66,6 +71,7 @@ export default function MetricsPage() {
         sort_by: sortBy,
         sort_order: sortOrder,
       };
+      if (nlQuery) params.q = nlQuery;
       if (search) params.search = search;
       if (fundHouse) params.fund_house = fundHouse;
       if (category) params.scheme_category = category;
@@ -78,10 +84,23 @@ export default function MetricsPage() {
       const { data: result } = await listMetrics(params);
       setData(result.data);
       setTotal(result.total);
+      setNlInfo(result.nl || null);
     } catch (err) {
       console.error('Failed to load metrics:', err);
     }
     setLoading(false);
+  }
+
+  function applyNlQuery() {
+    setNlQuery(nlInput.trim());
+    setPage(1);
+  }
+
+  function clearNlQuery() {
+    setNlInput('');
+    setNlQuery('');
+    setNlInfo(null);
+    setPage(1);
   }
 
   function handleSort(col) {
@@ -176,6 +195,52 @@ export default function MetricsPage() {
           </Tooltip>
         </Group>
       </Group>
+
+      <Card withBorder padding="md" radius="md" style={{ background: 'rgba(99,102,241,0.05)', borderColor: 'rgba(99,102,241,0.25)' }}>
+        <Stack gap="xs">
+          <TextInput
+            placeholder="Ask in plain English — e.g. 'sortino more, alpha over 2, downcapture below 100'"
+            leftSection={<IconSparkles size={16} color="var(--mantine-color-indigo-4)" />}
+            value={nlInput}
+            onChange={(e) => setNlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') applyNlQuery(); }}
+            size="sm"
+            rightSectionWidth={nlQuery ? 120 : 80}
+            rightSection={
+              <Group gap={4} wrap="nowrap">
+                {nlQuery && (
+                  <Tooltip label="Clear">
+                    <ActionIcon variant="subtle" color="gray" size="sm" onClick={clearNlQuery}>
+                      <IconX size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+                <Button size="xs" variant="light" color="indigo" onClick={applyNlQuery}>
+                  Search
+                </Button>
+              </Group>
+            }
+          />
+          {nlInfo && nlInfo.matched && nlInfo.interpreted.length > 0 && (
+            <Group gap="xs">
+              <Text size="xs" c="dimmed">Interpreted as:</Text>
+              {nlInfo.interpreted.map((chip, i) => (
+                <Badge key={i} size="sm" variant="light" color="indigo">{chip}</Badge>
+              ))}
+            </Group>
+          )}
+          {nlQuery && nlInfo && !nlInfo.matched && (
+            <Text size="xs" c="dimmed">
+              No metric conditions recognized — searching fund / AMC names for "{nlQuery}".
+            </Text>
+          )}
+          {!nlQuery && (
+            <Text size="xs" c="dimmed">
+              Try: "3 year rolling returns over 10", "sortino more", "alpha more", "upcapture higher than 100 and downcapture lower than 100".
+            </Text>
+          )}
+        </Stack>
+      </Card>
 
       <Group gap="sm">
         <TextInput
