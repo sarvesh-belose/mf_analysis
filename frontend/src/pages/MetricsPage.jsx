@@ -24,6 +24,7 @@ export default function MetricsPage() {
   const [period, setPeriod] = useState('3Y');
   const [data, setData] = useState([]);
   const [groups, setGroups] = useState(null); // non-null => grouped (top-N per category) view
+  const [groupTopN, setGroupTopN] = useState(null); // requested funds-per-category in grouped mode
   const [collapsed, setCollapsed] = useState({}); // { [category]: true } => collapsed
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -87,10 +88,12 @@ export default function MetricsPage() {
       const { data: result } = await listMetrics(params);
       if (result.grouped) {
         setGroups(result.groups || []);
+        setGroupTopN(result.top_n ?? null);
         setCollapsed({}); // default everything expanded for a fresh query
         setData([]);
       } else {
         setGroups(null);
+        setGroupTopN(null);
         setData(result.data);
       }
       setTotal(result.total);
@@ -404,13 +407,19 @@ export default function MetricsPage() {
             </Text>
           )}
           {groups.length > 0 && (
-            <Group justify="flex-end" gap="xs">
-              <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setAllCollapsed(false)}>
-                Expand all
-              </Button>
-              <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setAllCollapsed(true)}>
-                Collapse all
-              </Button>
+            <Group justify="space-between" gap="xs">
+              <Text size="xs" c="dimmed">
+                Showing up to {groupTopN} fund{groupTopN === 1 ? '' : 's'} per category, ranked by {sortBy.replace(/_/g, ' ')}.
+                {groups.some(g => g.funds.length < groupTopN) && ' Some categories have fewer — the filters exclude the rest.'}
+              </Text>
+              <Group gap="xs">
+                <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setAllCollapsed(false)}>
+                  Expand all
+                </Button>
+                <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setAllCollapsed(true)}>
+                  Collapse all
+                </Button>
+              </Group>
             </Group>
           )}
           {groups.map((g) => {
@@ -436,7 +445,11 @@ export default function MetricsPage() {
                       />
                       <Text fw={600} c="white">{g.category}</Text>
                     </Group>
-                    <Badge variant="light" color="indigo">Top {g.funds.length}</Badge>
+                    <Badge variant="light" color={g.funds.length < groupTopN ? 'yellow' : 'indigo'}>
+                      {g.funds.length < groupTopN
+                        ? `${g.funds.length} of ${groupTopN}`
+                        : `Top ${g.funds.length}`}
+                    </Badge>
                   </Group>
                 </UnstyledButton>
                 <Collapse in={!isCollapsed}>
