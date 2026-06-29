@@ -22,6 +22,7 @@ export default function MetricsPage() {
   const navigate = useNavigate();
   const [period, setPeriod] = useState('3Y');
   const [data, setData] = useState([]);
+  const [groups, setGroups] = useState(null); // non-null => grouped (top-N per category) view
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -82,7 +83,13 @@ export default function MetricsPage() {
       if (maxDownCapture !== '') params.max_down_capture = maxDownCapture;
 
       const { data: result } = await listMetrics(params);
-      setData(result.data);
+      if (result.grouped) {
+        setGroups(result.groups || []);
+        setData([]);
+      } else {
+        setGroups(null);
+        setData(result.data);
+      }
       setTotal(result.total);
       setNlInfo(result.nl || null);
     } catch (err) {
@@ -100,6 +107,7 @@ export default function MetricsPage() {
     setNlInput('');
     setNlQuery('');
     setNlInfo(null);
+    setGroups(null);
     setPage(1);
   }
 
@@ -115,7 +123,9 @@ export default function MetricsPage() {
 
   function exportCsv() {
     const headers = ['Fund Name', 'Fund House', 'Category', 'Benchmark', 'Rolling Return', 'Sharpe', 'Sortino', 'Alpha', 'Beta', 'Up Capture', 'Down Capture', 'CAGR'];
-    const rows = data.map(d => [
+    // In grouped mode, flatten all category groups into one export.
+    const exportRows = groups ? groups.flatMap(g => g.funds) : data;
+    const rows = exportRows.map(d => [
       d.fund_name, d.fund_house, d.scheme_category, d.benchmark_name,
       d.rolling_return_avg, d.sharpe_ratio, d.sortino_ratio,
       d.alpha, d.beta, d.up_capture, d.down_capture, d.fund_cagr,
@@ -171,13 +181,26 @@ export default function MetricsPage() {
     },
   ];
 
+  // Grouped view: rank badge up front, no per-column sorting inside a group.
+  const groupColumns = [
+    {
+      accessor: 'rank',
+      title: '#',
+      width: 40,
+      render: (r) => <Badge size="sm" variant="light" color="indigo">{r.rank}</Badge>,
+    },
+    ...columns.filter(c => c.accessor !== 'data_sufficiency').map(c => ({ ...c, sortable: false })),
+  ];
+
   return (
     <Stack gap="lg">
       <Group justify="space-between">
         <div>
           <Title order={2} c="white">Fund Explorer</Title>
           <Text size="sm" c="dimmed">
-            {total.toLocaleString()} funds • Period: {period}
+            {groups
+              ? `${groups.length} categories • ${total.toLocaleString()} funds • Period: ${period}`
+              : `${total.toLocaleString()} funds • Period: ${period}`}
           </Text>
         </div>
         <Group gap="sm">
@@ -199,7 +222,7 @@ export default function MetricsPage() {
       <Card withBorder padding="md" radius="md" style={{ background: 'rgba(99,102,241,0.05)', borderColor: 'rgba(99,102,241,0.25)' }}>
         <Stack gap="xs">
           <TextInput
-            placeholder="Ask in plain English — e.g. 'sortino more, alpha over 2, downcapture below 100'"
+            placeholder="Ask in plain English — e.g. 'top 3 in each category, sortino more'"
             leftSection={<IconSparkles size={16} color="var(--mantine-color-indigo-4)" />}
             value={nlInput}
             onChange={(e) => setNlInput(e.target.value)}
@@ -236,7 +259,7 @@ export default function MetricsPage() {
           )}
           {!nlQuery && (
             <Text size="xs" c="dimmed">
-              Try: "3 year rolling returns over 10", "sortino more", "alpha more", "upcapture higher than 100 and downcapture lower than 100".
+              Try: "top 3 in each category sortino more", "3 year rolling returns over 10", "upcapture higher than 100 and downcapture lower than 100".
             </Text>
           )}
         </Stack>
@@ -361,33 +384,69 @@ export default function MetricsPage() {
         </Stack>
       </Drawer>
 
-      <DataTable
-        records={data}
-        columns={columns}
-        totalRecords={total}
-        recordsPerPage={PAGE_SIZE}
-        page={page}
-        onPageChange={setPage}
-        sortStatus={{ columnAccessor: sortBy, direction: sortOrder }}
-        onSortStatusChange={({ columnAccessor, direction }) => {
-          setSortBy(columnAccessor);
-          setSortOrder(direction);
-          setPage(1);
-        }}
-        fetching={loading}
-        highlightOnHover
-        withTableBorder={false}
-        borderRadius="md"
-        minHeight={400}
-        noRecordsText="No funds found. Try adjusting filters or run setup."
-        styles={{
-          root: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8 },
-          header: { background: 'rgba(255,255,255,0.03)' },
-        }}
-        rowStyle={() => ({
-          borderBottom: '1px solid rgba(255,255,255,0.04)',
-        })}
-      />
+      {groups ? (
+        <Stack gap="md">
+          {groups.length === 0 && (
+            <Text c="dimmed" size="sm" ta="center" py="xl">
+              No funds match this query. Try relaxing the conditions.
+            </Text>
+          )}
+          {groups.map((g) => (
+            <Card
+              key={g.category}
+              withBorder
+              padding="md"
+              radius="md"
+              style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)' }}
+            >
+              <Group justify="space-between" mb="sm">
+                <Text fw={600} c="white">{g.category}</Text>
+                <Badge variant="light" color="indigo">Top {g.funds.length}</Badge>
+              </Group>
+              <DataTable
+                records={g.funds}
+                columns={groupColumns}
+                idAccessor="id"
+                fetching={loading}
+                highlightOnHover
+                withTableBorder={false}
+                borderRadius="sm"
+                minHeight={0}
+                styles={{ header: { background: 'rgba(255,255,255,0.03)' } }}
+                rowStyle={() => ({ borderBottom: '1px solid rgba(255,255,255,0.04)' })}
+              />
+            </Card>
+          ))}
+        </Stack>
+      ) : (
+        <DataTable
+          records={data}
+          columns={columns}
+          totalRecords={total}
+          recordsPerPage={PAGE_SIZE}
+          page={page}
+          onPageChange={setPage}
+          sortStatus={{ columnAccessor: sortBy, direction: sortOrder }}
+          onSortStatusChange={({ columnAccessor, direction }) => {
+            setSortBy(columnAccessor);
+            setSortOrder(direction);
+            setPage(1);
+          }}
+          fetching={loading}
+          highlightOnHover
+          withTableBorder={false}
+          borderRadius="md"
+          minHeight={400}
+          noRecordsText="No funds found. Try adjusting filters or run setup."
+          styles={{
+            root: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8 },
+            header: { background: 'rgba(255,255,255,0.03)' },
+          }}
+          rowStyle={() => ({
+            borderBottom: '1px solid rgba(255,255,255,0.04)',
+          })}
+        />
+      )}
     </Stack>
   );
 }

@@ -28,6 +28,29 @@ _OP_APPLY = {
 }
 
 
+def _serialize_row(fund, metrics, benchmark):
+    """Flatten a (Fund, FundMetrics, Benchmark) row into the API shape."""
+    return {
+        "id": fund.id,
+        "amfi_code": fund.amfi_code,
+        "fund_name": fund.fund_name,
+        "fund_house": fund.fund_house,
+        "scheme_category": fund.scheme_category,
+        "benchmark_name": benchmark.name_in_excel if benchmark else None,
+        "period": metrics.period,
+        "rolling_return_avg": _round(metrics.rolling_return_avg),
+        "sharpe_ratio": _round(metrics.sharpe_ratio),
+        "sortino_ratio": _round(metrics.sortino_ratio),
+        "alpha": _round(metrics.alpha),
+        "beta": _round(metrics.beta),
+        "up_capture": _round(metrics.up_capture),
+        "down_capture": _round(metrics.down_capture),
+        "fund_cagr": _round(metrics.fund_cagr),
+        "benchmark_cagr": _round(metrics.benchmark_cagr),
+        "data_sufficiency": metrics.data_sufficiency,
+    }
+
+
 @router.get("")
 def list_metrics(
     period: str = Query("3Y", regex="^(3Y|5Y|7Y)$"),
@@ -36,6 +59,8 @@ def list_metrics(
     sort_by: str = Query("sharpe_ratio"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     q: Optional[str] = Query(None, description="Natural-language query, e.g. 'sortino more, alpha over 2'"),
+    group_by: Optional[str] = Query(None, regex="^scheme_category$", description="Group results, e.g. 'scheme_category'"),
+    top_n: int = Query(3, ge=1, le=20, description="Funds per group when group_by is set"),
     search: Optional[str] = Query(None),
     fund_house: Optional[str] = Query(None),
     scheme_category: Optional[str] = Query(None),
@@ -73,6 +98,11 @@ def list_metrics(
         # Free-text fallback (e.g. fund / AMC name) when nothing metric matched.
         if nl_result["search"] and not search:
             search = nl_result["search"]
+        # Grouping / top-N intent from the query overrides the explicit params.
+        if nl_result["group_by"]:
+            group_by = nl_result["group_by"]
+        if nl_result["top_n"]:
+            top_n = nl_result["top_n"]
 
     # Filters
     if search:
@@ -110,22 +140,62 @@ def list_metrics(
         if primary in VALID_METRIC_COLUMNS:
             query = query.filter(getattr(FundMetrics, primary).isnot(None))
 
-    total = query.count()
-
-    # Sort
+    # Resolve the ranking column shared by both the flat and grouped paths.
     if sort_by in VALID_METRIC_COLUMNS:
         sort_col = getattr(FundMetrics, sort_by)
     elif sort_by in VALID_FUND_COLUMNS:
         sort_col = getattr(Fund, sort_by)
     else:
         sort_col = FundMetrics.sharpe_ratio
+    sort_col_ordered = sort_col.desc() if sort_order == "desc" else sort_col.asc()
 
-    # SQLite doesn't support nullslast() natively in the same way, but SQLAlchemy emulates it.
-    # However, to be safe for SQLite we can just use the column directly.
-    if sort_order == "desc":
-        query = query.order_by(sort_col.desc())
-    else:
-        query = query.order_by(sort_col.asc())
+    nl_payload = {
+        "interpreted": nl_result["interpreted"],
+        "matched": nl_result["matched"],
+    } if nl_result else None
+
+    # ── Grouped mode: top N funds per scheme category ───────────────────────
+    if group_by == "scheme_category":
+        # The ranking metric must be present for a fund to be ranked.
+        base = query.filter(
+            Fund.scheme_category.isnot(None),
+            sort_col.isnot(None),
+        )
+        # Distinct categories that survive the filters, then top-N within each.
+        categories = [
+            c for (c,) in base.with_entities(Fund.scheme_category).distinct().all()
+        ]
+        group_list = []
+        for cat in sorted(categories):
+            rows = (
+                base.filter(Fund.scheme_category == cat)
+                .order_by(sort_col_ordered)
+                .limit(top_n)
+                .all()
+            )
+            funds = []
+            for idx, (fund, metrics, benchmark) in enumerate(rows, start=1):
+                row = _serialize_row(fund, metrics, benchmark)
+                row["rank"] = idx
+                funds.append(row)
+            if funds:
+                group_list.append({"category": cat, "funds": funds})
+
+        return {
+            "grouped": True,
+            "group_by": group_by,
+            "top_n": top_n,
+            "period": period,
+            "sort_by": sort_by,
+            "sort_order": sort_order,
+            "total": sum(len(g["funds"]) for g in group_list),
+            "groups": group_list,
+            "nl": nl_payload,
+        }
+
+    # ── Flat mode (default) ─────────────────────────────────────────────────
+    total = query.count()
+    query = query.order_by(sort_col_ordered)
 
     # Apply any secondary NL sort preferences as tie-breakers.
     if nl_result:
@@ -137,39 +207,17 @@ def list_metrics(
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
 
-    data = []
-    for fund, metrics, benchmark in results:
-        data.append({
-            "id": fund.id,
-            "amfi_code": fund.amfi_code,
-            "fund_name": fund.fund_name,
-            "fund_house": fund.fund_house,
-            "scheme_category": fund.scheme_category,
-            "benchmark_name": benchmark.name_in_excel if benchmark else None,
-            "period": metrics.period,
-            "rolling_return_avg": _round(metrics.rolling_return_avg),
-            "sharpe_ratio": _round(metrics.sharpe_ratio),
-            "sortino_ratio": _round(metrics.sortino_ratio),
-            "alpha": _round(metrics.alpha),
-            "beta": _round(metrics.beta),
-            "up_capture": _round(metrics.up_capture),
-            "down_capture": _round(metrics.down_capture),
-            "fund_cagr": _round(metrics.fund_cagr),
-            "benchmark_cagr": _round(metrics.benchmark_cagr),
-            "data_sufficiency": metrics.data_sufficiency,
-        })
+    data = [_serialize_row(fund, metrics, benchmark) for fund, metrics, benchmark in results]
 
     return {
+        "grouped": False,
         "total": total,
         "page": page,
         "page_size": page_size,
         "total_pages": (total + page_size - 1) // page_size,
         "period": period,
         "data": data,
-        "nl": {
-            "interpreted": nl_result["interpreted"],
-            "matched": nl_result["matched"],
-        } if nl_result else None,
+        "nl": nl_payload,
     }
 
 

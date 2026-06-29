@@ -100,6 +100,16 @@ _METRIC_LABEL = {
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _CLAUSE_SPLIT_RE = re.compile(r"\s+and\s+|\s+but\s+|\s+with\s+|[,;&+]")
 
+# Phrases that signal "group the results by scheme category".
+_GROUP_BY_CATEGORY_RE = re.compile(
+    r"\b(?:per category|in each category|for each category|in every category|"
+    r"each category|by category|category[-\s]?wise|categorywise|"
+    r"across categories|group(?:ed)? by category|in (?:the )?category)\b"
+)
+# "top 3" / "best 5" -> rank limit per group.
+_TOP_N_RE = re.compile(r"\b(?:top|best|leading|highest)\s+(\d+)\b")
+_DEFAULT_TOP_N = 3
+
 
 def _find_metric(clause: str) -> Optional[tuple[str, str]]:
     """Return (column, matched_synonym) for the first metric found, longest first."""
@@ -145,6 +155,8 @@ def parse_query(q: str) -> dict:
         "filters": [],
         "sorts": [],
         "search": None,
+        "group_by": None,
+        "top_n": None,
         "interpreted": [],
         "matched": False,
     }
@@ -152,7 +164,26 @@ def parse_query(q: str) -> dict:
         return result
 
     raw = q.strip()
-    clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(raw.lower()) if c.strip()]
+    working = raw.lower()
+
+    # Global modifiers (grouping / top-N) are detected and stripped first so
+    # their numbers and keywords don't leak into per-metric clause parsing.
+    if _GROUP_BY_CATEGORY_RE.search(working):
+        result["group_by"] = "scheme_category"
+        result["matched"] = True
+        working = _GROUP_BY_CATEGORY_RE.sub(" ", working)
+
+    top_match = _TOP_N_RE.search(working)
+    if top_match:
+        result["top_n"] = int(top_match.group(1))
+        result["matched"] = True
+        working = _TOP_N_RE.sub(" ", working)
+
+    # Grouping with no explicit count defaults to top 3 per category.
+    if result["group_by"] and result["top_n"] is None:
+        result["top_n"] = _DEFAULT_TOP_N
+
+    clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(working) if c.strip()]
 
     for clause in clauses:
         metric = _find_metric(clause)
@@ -195,8 +226,13 @@ def parse_query(q: str) -> dict:
             result["sorts"].append({"column": column, "direction": direction})
             result["interpreted"].append(f"Sort by {label} ({arrow})")
 
-    # If nothing was understood as a metric, fall back to plain text search so
-    # the box still works for fund / AMC names.
+    # Surface the grouping intent in the human-readable summary (prepended so it
+    # reads naturally before the metric conditions).
+    if result["group_by"] == "scheme_category":
+        result["interpreted"].insert(0, f"Top {result['top_n']} per Category")
+
+    # If nothing was understood at all, fall back to plain text search so the box
+    # still works for fund / AMC names.
     if not result["matched"]:
         result["search"] = raw
 
