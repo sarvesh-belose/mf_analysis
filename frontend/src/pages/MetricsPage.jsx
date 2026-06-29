@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Title, Text, Group, Stack, SegmentedControl, TextInput, Select,
-  Badge, ActionIcon, Tooltip, Card, Button, Drawer, NumberInput, Divider
+  Badge, ActionIcon, Tooltip, Card, Button, Drawer, NumberInput, Divider,
+  Collapse, UnstyledButton,
 } from '@mantine/core';
 import { DataTable } from 'mantine-datatable';
-import { IconSearch, IconDownload, IconEye, IconArrowsSort, IconFilter, IconSparkles, IconX } from '@tabler/icons-react';
+import { IconSearch, IconDownload, IconEye, IconArrowsSort, IconFilter, IconSparkles, IconX, IconChevronDown } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { listMetrics, getFundFilters } from '../api/client';
 
@@ -23,6 +24,7 @@ export default function MetricsPage() {
   const [period, setPeriod] = useState('3Y');
   const [data, setData] = useState([]);
   const [groups, setGroups] = useState(null); // non-null => grouped (top-N per category) view
+  const [collapsed, setCollapsed] = useState({}); // { [category]: true } => collapsed
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -85,6 +87,7 @@ export default function MetricsPage() {
       const { data: result } = await listMetrics(params);
       if (result.grouped) {
         setGroups(result.groups || []);
+        setCollapsed({}); // default everything expanded for a fresh query
         setData([]);
       } else {
         setGroups(null);
@@ -101,6 +104,15 @@ export default function MetricsPage() {
   function applyNlQuery() {
     setNlQuery(nlInput.trim());
     setPage(1);
+  }
+
+  function toggleGroup(category) {
+    setCollapsed((prev) => ({ ...prev, [category]: !prev[category] }));
+  }
+
+  function setAllCollapsed(value) {
+    if (!groups) return;
+    setCollapsed(value ? Object.fromEntries(groups.map((g) => [g.category, true])) : {});
   }
 
   function clearNlQuery() {
@@ -391,32 +403,59 @@ export default function MetricsPage() {
               No funds match this query. Try relaxing the conditions.
             </Text>
           )}
-          {groups.map((g) => (
-            <Card
-              key={g.category}
-              withBorder
-              padding="md"
-              radius="md"
-              style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)' }}
-            >
-              <Group justify="space-between" mb="sm">
-                <Text fw={600} c="white">{g.category}</Text>
-                <Badge variant="light" color="indigo">Top {g.funds.length}</Badge>
-              </Group>
-              <DataTable
-                records={g.funds}
-                columns={groupColumns}
-                idAccessor="id"
-                fetching={loading}
-                highlightOnHover
-                withTableBorder={false}
-                borderRadius="sm"
-                minHeight={0}
-                styles={{ header: { background: 'rgba(255,255,255,0.03)' } }}
-                rowStyle={() => ({ borderBottom: '1px solid rgba(255,255,255,0.04)' })}
-              />
-            </Card>
-          ))}
+          {groups.length > 0 && (
+            <Group justify="flex-end" gap="xs">
+              <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setAllCollapsed(false)}>
+                Expand all
+              </Button>
+              <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setAllCollapsed(true)}>
+                Collapse all
+              </Button>
+            </Group>
+          )}
+          {groups.map((g) => {
+            const isCollapsed = !!collapsed[g.category];
+            return (
+              <Card
+                key={g.category}
+                withBorder
+                padding="md"
+                radius="md"
+                style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)' }}
+              >
+                <UnstyledButton onClick={() => toggleGroup(g.category)} style={{ width: '100%' }}>
+                  <Group justify="space-between" mb={isCollapsed ? 0 : 'sm'} wrap="nowrap">
+                    <Group gap="xs" wrap="nowrap">
+                      <IconChevronDown
+                        size={16}
+                        style={{
+                          color: 'var(--mantine-color-dimmed)',
+                          transition: 'transform 0.15s ease',
+                          transform: isCollapsed ? 'rotate(-90deg)' : 'none',
+                        }}
+                      />
+                      <Text fw={600} c="white">{g.category}</Text>
+                    </Group>
+                    <Badge variant="light" color="indigo">Top {g.funds.length}</Badge>
+                  </Group>
+                </UnstyledButton>
+                <Collapse in={!isCollapsed}>
+                  <DataTable
+                    records={g.funds}
+                    columns={groupColumns}
+                    idAccessor="id"
+                    fetching={loading}
+                    highlightOnHover
+                    withTableBorder={false}
+                    borderRadius="sm"
+                    minHeight={0}
+                    styles={{ header: { background: 'rgba(255,255,255,0.03)' } }}
+                    rowStyle={() => ({ borderBottom: '1px solid rgba(255,255,255,0.04)' })}
+                  />
+                </Collapse>
+              </Card>
+            );
+          })}
         </Stack>
       ) : (
         <DataTable
