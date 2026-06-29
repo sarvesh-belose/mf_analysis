@@ -149,6 +149,15 @@ def list_metrics(
         sort_col = FundMetrics.sharpe_ratio
     sort_col_ordered = sort_col.desc() if sort_order == "desc" else sort_col.asc()
 
+    # Secondary NL sort preferences become tie-breakers, applied in both the
+    # flat and grouped paths so ranking is deterministic and consistent.
+    order_cols = [sort_col_ordered]
+    if nl_result:
+        for extra in nl_result["sorts"][1:]:
+            col = getattr(FundMetrics, extra["column"], None)
+            if col is not None:
+                order_cols.append(col.desc() if extra["direction"] == "desc" else col.asc())
+
     nl_payload = {
         "interpreted": nl_result["interpreted"],
         "matched": nl_result["matched"],
@@ -169,7 +178,7 @@ def list_metrics(
         for cat in sorted(categories):
             rows = (
                 base.filter(Fund.scheme_category == cat)
-                .order_by(sort_col_ordered)
+                .order_by(*order_cols)
                 .limit(top_n)
                 .all()
             )
@@ -195,14 +204,7 @@ def list_metrics(
 
     # ── Flat mode (default) ─────────────────────────────────────────────────
     total = query.count()
-    query = query.order_by(sort_col_ordered)
-
-    # Apply any secondary NL sort preferences as tie-breakers.
-    if nl_result:
-        for extra in nl_result["sorts"][1:]:
-            col = getattr(FundMetrics, extra["column"], None)
-            if col is not None:
-                query = query.order_by(col.desc() if extra["direction"] == "desc" else col.asc())
+    query = query.order_by(*order_cols)
 
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()

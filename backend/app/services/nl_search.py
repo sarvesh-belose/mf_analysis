@@ -104,7 +104,14 @@ _CLAUSE_SPLIT_RE = re.compile(r"\s+and\s+|\s+but\s+|\s+with\s+|[,;&+]")
 _GROUP_BY_CATEGORY_RE = re.compile(
     r"\b(?:per category|in each category|for each category|in every category|"
     r"each category|by category|category[-\s]?wise|categorywise|"
-    r"across categories|group(?:ed)? by category|in (?:the )?category)\b"
+    r"across categories|based on (?:the )?(?:scheme )?categor(?:y|ies)|"
+    r"in (?:the )?category)\b"
+)
+# A 'group/split/organize ... category' phrase, allowing words in between, e.g.
+# "group top 5 mutual funds based on category".
+_GROUP_VERB_RE = re.compile(
+    r"\b(?:group|grouped|grouping|split|segment|organi[sz]e|bucket|categori[sz]e)\b"
+    r".{0,40}?\bcategor(?:y|ies)\b"
 )
 # "top 3" / "best 5" -> rank limit per group.
 _TOP_N_RE = re.compile(r"\b(?:top|best|leading|highest)\s+(\d+)\b")
@@ -168,20 +175,29 @@ def parse_query(q: str) -> dict:
 
     # Global modifiers (grouping / top-N) are detected and stripped first so
     # their numbers and keywords don't leak into per-metric clause parsing.
-    if _GROUP_BY_CATEGORY_RE.search(working):
-        result["group_by"] = "scheme_category"
-        result["matched"] = True
-        working = _GROUP_BY_CATEGORY_RE.sub(" ", working)
-
+    #
+    # Detect 'top N' BEFORE stripping any grouping phrase: a phrase like
+    # "group top 5 ... based on category" contains the count, so stripping the
+    # group phrase first would swallow it and wrongly fall back to the default.
     top_match = _TOP_N_RE.search(working)
     if top_match:
         result["top_n"] = int(top_match.group(1))
         result["matched"] = True
         working = _TOP_N_RE.sub(" ", working)
 
-    # Grouping with no explicit count defaults to top 3 per category.
-    if result["group_by"] and result["top_n"] is None:
-        result["top_n"] = _DEFAULT_TOP_N
+    grouped = False
+    if _GROUP_BY_CATEGORY_RE.search(working):
+        grouped = True
+        working = _GROUP_BY_CATEGORY_RE.sub(" ", working)
+    if _GROUP_VERB_RE.search(working):
+        grouped = True
+        working = _GROUP_VERB_RE.sub(" ", working)
+    if grouped:
+        result["group_by"] = "scheme_category"
+        result["matched"] = True
+        # Grouping with no explicit count defaults to top 3 per category.
+        if result["top_n"] is None:
+            result["top_n"] = _DEFAULT_TOP_N
 
     clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(working) if c.strip()]
 
